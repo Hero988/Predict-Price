@@ -458,7 +458,7 @@ if is_training_actual_price_movement:
             saved_to_file = True
 
         # Print training and validation loss for the current epoch
-        print(f'Epoch {epoch+1}, Training loss: {train_loss:.4f}, Validation loss: {val_loss:.4f}')
+        #print(f'Epoch {epoch+1}, Training loss: {train_loss:.4f}, Validation loss: {val_loss:.4f}')
         
         # Check for improvement in validation loss
         if val_loss < best_loss:
@@ -469,17 +469,17 @@ if is_training_actual_price_movement:
             # Save the current model as the best model
             torch.save(model.state_dict(), model_path_actual_price_movement)
             # Print message indicating new best validation loss
-            print(f'New best validation loss: {best_loss}, saving model.')
+            #print(f'New best validation loss: {best_loss}, saving model.')
         else:
             # Increment patience counter if no improvement
             patience_counter += 1
             # Print message indicating no improvement
-            print(f'No improvement in validation loss for {patience_counter} epochs.')
+            #print(f'No improvement in validation loss for {patience_counter} epochs.')
 
         # Check if early stopping criteria are met
         if patience_counter >= patience:
             # Print message indicating early stopping
-            print("Early stopping triggered.")
+            #print("Early stopping triggered.")
             # Break out of the loop to stop training
             break
 
