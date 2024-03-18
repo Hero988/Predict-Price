@@ -594,5 +594,3 @@ if is_evaluating_actual_price_movement:
 
     # Generate and save diagrams for the out-of-sample data
     create_diagrams(strategy_data_out_of_sample, name_of_folder)
-
-
