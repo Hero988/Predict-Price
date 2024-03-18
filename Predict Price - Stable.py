@@ -1,26 +1,26 @@
-import pandas as pd
-import datetime
-import MetaTrader5 as mt5
-from datetime import datetime, timedelta
-import os
-import pytz
-import pandas_ta as ta
+import pandas as pd  # Import pandas for data manipulation and analysis
+import datetime  # Import datetime for working with dates and times
+import MetaTrader5 as mt5  # Import the MetaTrader5 module to interact with the MetaTrader 5 terminal
+from datetime import datetime, timedelta  # Import specific classes from datetime for convenience
+import os  # Import os module for interacting with the operating system
+import pytz  # Import pytz for timezone calculations
+import pandas_ta as ta  # Import pandas_ta for technical analysis indicators on pandas DataFrames
 
-import torch
-import matplotlib.pyplot as plt
-import matplotlib.pyplot as plt
-torch.distributions.Categorical
+import torch  # Import torch for deep learning tasks
+import matplotlib.pyplot as plt  # Import matplotlib.pyplot for plotting graphs
+import matplotlib.pyplot as plt  # This is a duplicate import and can be removed
+torch.distributions.Categorical  # Access the Categorical distribution class from PyTorch's distributions module
 
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import precision_score
-from sklearn.metrics import recall_score
-from sklearn.metrics import f1_score
+from sklearn.metrics import accuracy_score  # Import accuracy_score for model evaluation
+from sklearn.metrics import precision_score  # Import precision_score for model evaluation
+from sklearn.metrics import recall_score  # Import recall_score for model evaluation
+from sklearn.metrics import f1_score  # Import f1_score for model evaluation
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler
+import torch  # This is a duplicate import and can be removed
+import torch.nn as nn  # Import torch.nn for building neural network layers
+from torch.utils.data import DataLoader, TensorDataset  # Import DataLoader and TensorDataset for handling datasets in PyTorch
+import numpy as np  # Import numpy for numerical operations
+from sklearn.preprocessing import MinMaxScaler  # Import MinMaxScaler for feature scaling
 
 # Your MetaTrader 5 login details
 account_number = 1058146570  # Replace with your account number
@@ -39,9 +39,6 @@ def mt5_login(account_number, password, server_name):
         print("login failed, error code =", mt5.last_error())
         mt5.shutdown()
         quit()
-    else:
-        # On successful login, print connected status
-        print("Connected to MetaTrader 5")
 
 def fetch_and_prepare_fx_data_mt5(symbol, timeframe_str, start_date, end_date):
     # Log in to MT5 account before fetching data
@@ -86,13 +83,6 @@ def fetch_and_prepare_fx_data_mt5(symbol, timeframe_str, start_date, end_date):
     rates_frame.set_index('time', inplace=True)
     # Ensure the index is in the proper datetime format
     rates_frame.index = pd.to_datetime(rates_frame.index, format="%Y-%m-%d %H:%M:%S")
-
-    # Check if 'tick_volume' is included in the retrieved data
-    if 'tick_volume' not in rates_frame.columns:
-        print("tick_volume is not in the fetched data. Ensure it's included in the API call.")
-    else:
-        # Confirm 'tick_volume' is included
-        print("tick_volume is included in the data.")
     
     # Shutdown MT5 connection after data retrieval
     mt5.shutdown()
@@ -308,11 +298,11 @@ def preprocess_data(data, feature_columns, target_column, sequence_length):
     
     # Create input-output sequences using the scaled features and target
     sequences = create_inout_sequences(data_scaled_features, data_scaled_target, sequence_length)
-    
+
     # Convert each sequence in sequences to a tensor, and collect them
-    sequence_tensors = [torch.tensor(s[0], dtype=torch.float32) for s in sequences]
+    sequence_tensors = [s[0].clone().detach() for s in sequences]
     # Similarly, convert each target in sequences to a tensor
-    target_tensors = [torch.tensor(s[1], dtype=torch.float32) for s in sequences]
+    target_tensors = [s[1].clone().detach() for s in sequences]
 
     # Create a TensorDataset from the sequence and target tensors
     dataset = TensorDataset(torch.stack(sequence_tensors), torch.stack(target_tensors))
@@ -350,7 +340,7 @@ eur_usd_data = calculate_indicators(eur_usd_data)
 model_path_actual_price_movement = f"lstm_model_{Pair}_{timeframe_str}_actual_price_movement.pth"
 
 # Ask the user if they want to train the model, converting the response to lowercase and stripping whitespace, then checking if it's 'yes'
-is_training_actual_price_movement = input("Do you want to train the model for the actual price movement? (yes or no)").lower().strip() == 'yes'
+is_training_actual_price_movement = input("Do you want to train the model for the actual price movement? (yes or no): ").lower().strip() == 'yes'
 
 # If the user wants to train the model, proceed with the following steps
 if is_training_actual_price_movement:
@@ -499,7 +489,7 @@ if is_training_actual_price_movement:
     create_diagrams(training_data, name_of_folder)
 
 # Ask user if they want to evaluate the model for actual price movement, and store the boolean result
-is_evaluating_actual_price_movement = input("Do you want to evaluate the model for the actual price movement? (yes or no)").lower().strip() == 'yes'
+is_evaluating_actual_price_movement = input("Do you want to evaluate the model for the actual price movement? (yes or no): ").lower().strip() == 'yes'
 
 # Proceed with evaluation if the user responded with 'yes'
 if is_evaluating_actual_price_movement:
