@@ -6,6 +6,8 @@ import os  # Import os module for interacting with the operating system
 import pytz  # Import pytz for timezone calculations
 import pandas_ta as ta  # Import pandas_ta for technical analysis indicators on pandas DataFrames
 
+import torch.nn.functional as F
+
 import torch  # Import torch for deep learning tasks
 import matplotlib.pyplot as plt  # Import matplotlib.pyplot for plotting graphs
 import matplotlib.pyplot as plt  # This is a duplicate import and can be removed
@@ -310,25 +312,37 @@ def preprocess_data(data, feature_columns, target_column, sequence_length):
     # Return a DataLoader for the dataset, with specified batch size and shuffling
     return DataLoader(dataset, batch_size=64, shuffle=True)
    
-class LSTM_Actual_Price_Movement_Prediction(nn.Module):
-    def __init__(self, input_size=1, hidden_layer_size=100, output_size=1):
-        super().__init__()  # Initialize the superclass
-        self.hidden_layer_size = hidden_layer_size  # Set the hidden layer size attribute
-        # Initialize an LSTM layer with specified input size, hidden layer size, and batch_first=True
-        self.lstm = nn.LSTM(input_size, hidden_layer_size, batch_first=True)
-        # Initialize a linear layer to map from hidden layer size to output size
-        self.linear = nn.Linear(hidden_layer_size, output_size)
-        self.sigmoid = nn.Sigmoid()  # Initialize a Sigmoid activation function
+class FeaturePreprocessing(nn.Module):
+    def __init__(self, num_features, transformed_feature_size):
+        super(FeaturePreprocessing, self).__init__()
+        self.dense_layers = nn.ModuleList([nn.Linear(1, transformed_feature_size) for _ in range(num_features)])
+    
+    def forward(self, x):
+        transformed_features = []
+        for i, dense_layer in enumerate(self.dense_layers):
+            feature = F.relu(dense_layer(x[:, :, i:i+1]))
+            transformed_features.append(feature)
+        combined_features = torch.cat(transformed_features, dim=2)
+        return combined_features
+
+class LSTM_Price_Movement_Prediction(nn.Module):
+    def __init__(self, num_features, transformed_feature_size=10, hidden_layer_size=100, output_size=1, dropout_rate=0.5):
+        super(LSTM_Price_Movement_Prediction, self).__init__()
+        self.hidden_layer_size = hidden_layer_size
+        self.feature_preprocessing = FeaturePreprocessing(num_features, transformed_feature_size)
+        # Using a bidirectional GRU here
+        self.gru = nn.GRU(transformed_feature_size * num_features, hidden_layer_size, batch_first=True, bidirectional=True)
+        self.dropout = nn.Dropout(dropout_rate)
+        # Adjust the input dimension of the linear layer to account for the bidirectional GRU
+        self.linear = nn.Linear(hidden_layer_size * 2, output_size)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, input_seq):
-        # Initialize the initial hidden state and cell state for the LSTM
-        h0 = torch.zeros(1, input_seq.size(0), self.hidden_layer_size, dtype=torch.float32)
-        c0 = torch.zeros(1, input_seq.size(0), self.hidden_layer_size, dtype=torch.float32)
-        # Pass the input sequence through the LSTM layer
-        lstm_out, _ = self.lstm(input_seq, (h0, c0))
-        # Pass the output of the LSTM's last time step through the linear layer and then the sigmoid activation
-        predictions = self.sigmoid(self.linear(lstm_out[:, -1, :]))  # Apply sigmoid
-        return predictions  # Return the final predictions
+        input_seq_transformed = self.feature_preprocessing(input_seq)
+        gru_out, _ = self.gru(input_seq_transformed)
+        gru_out = self.dropout(gru_out)
+        predictions = self.sigmoid(self.linear(gru_out[:, -1, :]))
+        return predictions
 
 # Boolean to confirm if we have saved a file or not    
 saved_to_file = False
@@ -342,6 +356,68 @@ model_path_actual_price_movement = f"lstm_model_{Pair}_{timeframe_str}_actual_pr
 # Ask the user if they want to train the model, converting the response to lowercase and stripping whitespace, then checking if it's 'yes'
 is_training_actual_price_movement = input("Do you want to train the model for the actual price movement? (yes or no): ").lower().strip() == 'yes'
 
+def fetch_hourly_data_for_date_range(start_date, end_date):
+    print("Fetching hourly data for specific timeframe")
+    """Fetch hourly data from 12am to 12pm for each day within the given date range and save it to a CSV file."""
+    start_date_dt = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    
+    date_range = [start_date_dt + timedelta(days=i) for i in range((end_date_dt - start_date_dt).days + 1)]
+    
+    hourly_data_frames = []
+    
+    for current_date in date_range:
+        current_date_str = current_date.strftime("%Y-%m-%d")
+        start_datetime = f"{current_date_str} 00:00:00"
+        end_datetime = (current_date + timedelta(days=1)).strftime("%Y-%m-%d") + " 00:00:00"
+
+        start_datetime_dt = datetime.strptime(start_datetime, "%Y-%m-%d %H:%M:%S")
+        end_datetime_dt = datetime.strptime(end_datetime, "%Y-%m-%d %H:%M:%S")
+
+        eur_usd_data_hourly = fetch_and_prepare_fx_data_mt5(Pair, "1H", start_date_all, end_date_all)
+
+        hourly_data = eur_usd_data_hourly[(eur_usd_data_hourly.index >= start_datetime_dt) & (eur_usd_data_hourly.index <= end_datetime_dt)]
+        
+        if hourly_data is not None and not hourly_data.empty:
+            filtered_data = hourly_data.copy()
+
+            # If you need to add a date and hour column based on the index:
+            filtered_data['date'] = filtered_data.index.date
+            filtered_data['hour'] = filtered_data.index.hour
+
+            # To filter out rows not in the desired time range (keeping only 00:00 to 11:59) using the index:
+            filtered_data = filtered_data[(filtered_data['hour'] >= 0)]
+
+            filtered_data['full_time'] = filtered_data.index.strftime('%H:%M:%S')  # Full hour, minute, and second
+
+            hourly_data_frames.append(filtered_data)
+
+    combined_hourly_data = pd.concat(hourly_data_frames)
+
+    # Assuming 'combined_hourly_data' contains a 'close' column with closing prices
+    # Shift the 'close' column by 1 to compare the current close price with the previous close price
+    combined_hourly_data['prev_close'] = combined_hourly_data['close'].shift(1)
+    
+    # Calculate the actual price movement
+    # 1 for upward movement, -1 for downward movement, 0 for no change
+    combined_hourly_data['hourly actual price movement'] = combined_hourly_data.apply(
+        lambda row: 1 if row['close'] > row['prev_close'] else (-1 if row['close'] < row['prev_close'] else 0), axis=1)
+    
+    
+    # Remove specified columns
+    columns_to_remove = ['hour']
+    combined_hourly_data.drop(columns=columns_to_remove, inplace=True)
+    
+    # Remove rows where the hourly actual price movement is 0
+    combined_hourly_data = combined_hourly_data[combined_hourly_data['hourly actual price movement'] != 0]
+
+    # Save the updated DataFrame to a new CSV file or overwrite the existing one
+    csv_filename_updated = "hourly_data_12am_to_12pm_with_movement.csv"
+    combined_hourly_data.to_csv(csv_filename_updated, index=False)
+    print(f"Hourly data with actual price movement saved to {csv_filename_updated}")
+    
+    return combined_hourly_data
+
 # If the user wants to train the model, proceed with the following steps
 if is_training_actual_price_movement:
     # Get user input for the start date of training data
@@ -352,12 +428,14 @@ if is_training_actual_price_movement:
     # Filter the EUR/USD data for the specified training period using start and end dates
     strategy_data_in_sample = eur_usd_data[(eur_usd_data.index >= start_date_test_training) & (eur_usd_data.index <= end_date_test_training)]
 
+    hourly_data = fetch_hourly_data_for_date_range(start_date_test_training, end_date_test_training)
+
     # Define the feature columns to be used in the model
-    feature_columns = ['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'EMA_9', 'EMA_21', 'SMA_20', 'Upper Band', 'Lower Band', 'Lower Band Scalping', 'Middle Band Scalping', 'Upper Band Scalping', 'MACD', 'Signal_Line', 'RSI_9', 'RSI_5 Scalping', 'Stoch_%K', 'Stoch_%D', 'Previous Close','Previous Actual Price Movement']  # Adjust as needed
+    feature_columns = ['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'EMA_9', 'EMA_21', 'SMA_20', 'Upper Band', 'Lower Band', 'Lower Band Scalping', 'Middle Band Scalping', 'Upper Band Scalping', 'MACD', 'Signal_Line', 'RSI_9', 'RSI_5 Scalping', 'Stoch_%K', 'Stoch_%D', 'Previous Close','Previous Actual Price Movement', 'date']  # Adjust as needed
     target_column = 'Actual Price Movement'  # Define the target column for prediction
 
     # Set the sequence length, indicating how many days of data will be used to predict the next day's movement
-    sequence_length = 1  # The number of past days to consider for predicting the next day's close price
+    sequence_length = 1  
 
     # Calculate the index at which to split the data into training and validation sets, using 80% of data for training
     split_idx = int(len(strategy_data_in_sample) * 0.8)
@@ -369,9 +447,22 @@ if is_training_actual_price_movement:
     # Preprocess the training and validation data, creating DataLoader objects for each
     train_loader = preprocess_data(training_data, feature_columns, target_column, sequence_length)
     val_loader = preprocess_data(validation_data, feature_columns, target_column, sequence_length)
+
+    # The number of features you're using
+    num_features = len(feature_columns)
+
+    # Transformed feature size: You can adjust this based on your requirements
+    transformed_feature_size = 100
+
+    # Hidden layer size for the LSTM
+    hidden_layer_size = 100
+
+    # Output size: For binary classification, this remains 1
+    output_size = 1
+
+    # Now instantiate your model with the correct parameters
+    model = LSTM_Price_Movement_Prediction(num_features=num_features, transformed_feature_size=transformed_feature_size, hidden_layer_size=hidden_layer_size, output_size=output_size)
     
-    # Initialize the LSTM model with specified input size, hidden layer size, and output size
-    model = LSTM_Actual_Price_Movement_Prediction(input_size=len(feature_columns), hidden_layer_size=100, output_size=1)
     # Initialize the loss function as Binary Cross Entropy Loss
     loss_function = nn.BCELoss()
     # Initialize the optimizer as Adam, with learning rate 0.001
@@ -504,7 +595,7 @@ if is_evaluating_actual_price_movement:
     strategy_data_out_of_sample = eur_usd_data[(eur_usd_data.index >= start_date_evaluating) & (eur_usd_data.index <= end_date_test_evaluating)]
 
     # Define the features to be used by the model
-    feature_columns = ['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'EMA_9', 'EMA_21', 'SMA_20', 'Upper Band', 'Lower Band', 'Lower Band Scalping', 'Middle Band Scalping', 'Upper Band Scalping', 'MACD', 'Signal_Line', 'RSI_9', 'RSI_5 Scalping', 'Stoch_%K', 'Stoch_%D', 'Previous Close','Previous Actual Price Movement']
+    feature_columns = ['open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume', 'SMA_50', 'SMA_200', 'EMA_50', 'EMA_200', 'EMA_9', 'EMA_21', 'SMA_20', 'Upper Band', 'Lower Band', 'Lower Band Scalping', 'Middle Band Scalping', 'Upper Band Scalping', 'MACD', 'Signal_Line', 'RSI_9', 'RSI_5 Scalping', 'Stoch_%K', 'Stoch_%D', 'Previous Close','Previous Actual Price Movement', 'date']
 
     # Specify the target column for prediction
     target_column = 'Actual Price Movement'
@@ -512,8 +603,21 @@ if is_evaluating_actual_price_movement:
     # Preprocess the data and create a DataLoader for testing
     test_loader = preprocess_data(strategy_data_out_of_sample, feature_columns, target_column, sequence_length)
 
-    # Initialize the model with the correct input size, hidden layer size, and output size
-    model_loaded = LSTM_Actual_Price_Movement_Prediction(input_size=len(feature_columns), hidden_layer_size=100, output_size=1)
+    # The number of features you're using
+    num_features = len(feature_columns)
+
+    # Transformed feature size: You can adjust this based on your requirements
+    transformed_feature_size = 100
+
+    # Hidden layer size for the LSTM
+    hidden_layer_size = 100
+
+    # Output size: For binary classification, this remains 1
+    output_size = 1
+
+    # Now instantiate your model with the correct parameters
+    model_loaded = LSTM_Price_Movement_Prediction(num_features=num_features, transformed_feature_size=transformed_feature_size, hidden_layer_size=hidden_layer_size, output_size=output_size)
+
     # Load the previously trained model weights
     model_loaded.load_state_dict(torch.load(model_path_actual_price_movement))
     # Set the model to evaluation mode

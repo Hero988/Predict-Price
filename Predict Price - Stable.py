@@ -8,7 +8,6 @@ import pandas_ta as ta  # Import pandas_ta for technical analysis indicators on 
 
 import torch  # Import torch for deep learning tasks
 import matplotlib.pyplot as plt  # Import matplotlib.pyplot for plotting graphs
-import matplotlib.pyplot as plt  # This is a duplicate import and can be removed
 torch.distributions.Categorical  # Access the Categorical distribution class from PyTorch's distributions module
 
 from sklearn.metrics import accuracy_score  # Import accuracy_score for model evaluation
@@ -16,7 +15,6 @@ from sklearn.metrics import precision_score  # Import precision_score for model 
 from sklearn.metrics import recall_score  # Import recall_score for model evaluation
 from sklearn.metrics import f1_score  # Import f1_score for model evaluation
 
-import torch  # This is a duplicate import and can be removed
 import torch.nn as nn  # Import torch.nn for building neural network layers
 from torch.utils.data import DataLoader, TensorDataset  # Import DataLoader and TensorDataset for handling datasets in PyTorch
 import numpy as np  # Import numpy for numerical operations
@@ -307,8 +305,8 @@ def preprocess_data(data, feature_columns, target_column, sequence_length):
     # Create a TensorDataset from the sequence and target tensors
     dataset = TensorDataset(torch.stack(sequence_tensors), torch.stack(target_tensors))
     
-    # Return a DataLoader for the dataset, with specified batch size and shuffling
-    return DataLoader(dataset, batch_size=64, shuffle=True)
+    # Return a DataLoader for the dataset, with specified batch size and not shuffling
+    return DataLoader(dataset, batch_size=64, shuffle=False)
    
 class LSTM_Actual_Price_Movement_Prediction(nn.Module):
     def __init__(self, input_size=1, hidden_layer_size=100, output_size=1):
